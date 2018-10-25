@@ -123,6 +123,7 @@ class DataCleaner():
             self.df[[i]] = KNN(k=k).fit_transform(self.df[i])
         for i in fill_value:
             self.df[[i]] = self.df.fillna(df[i].fillna(value=value))
+        return self.df
 
     def fill_outliers(self, data=0, cols='None'):
         if data != 0:
@@ -152,6 +153,7 @@ class DataCleaner():
         skewed_feats = skewed_feats[skewed_feats > threshold]
         skewed_feats = skewed_feats.index
         self.df[skewed_feats] = np.log1p(self.df[skewed_feats])
+        return self.df
 
 
 class FeatureEngineering():
