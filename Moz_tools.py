@@ -8,17 +8,18 @@ import math
 from fancyimpute import KNN
 from scipy.stats import skew
 from sklearn.preprocessing import StandardScaler
+from scipy.special import boxcox1p
 
 
 class Plots():
 
-    def __init__(self, df=0):
-        if df != 0:
-            self.df = df
-            self.shape = df.shape
-            self.cat = df.dtypes[df.dtypes == object].index
-            self.num = df.dtypes[df.dtypes != object].index
-            self.y = df.columns[-1]
+    def __init__(self, data=None):
+        if data is not None:
+            self.df = data
+            self.shape = data.shape
+            self.cat = data.dtypes[data.dtypes == object].index
+            self.num = data.dtypes[data.dtypes != object].index
+            self.y = data.columns[-1]
 
     def distribution(self, cat=0, num=0):
         if cat != 0:
@@ -32,10 +33,10 @@ class Plots():
             self.df[i].plot(kind='density', title=i)
             plt.show()
 
-    def unique_ratio(self):
+    def unique_ratio(self, threshold=0):
         plt.figure(figsize=(20, 10))
-        (self.df.apply(lambda x: x.unique().shape[0], axis=0) / self.df.shape[0])\
-            .plot(kind='bar', title='unique ratio')
+        tmpdf_ = self.df.apply(lambda x: x.unique().shape[0], axis=0) / self.df.shape[0]
+        tmpdf_[tmpdf_ > threshold].plot(kind='bar', title='unique ratio')
 
     def na_ratio(self, rot=45, threshold=0):
         tmp0 = self.df.isna().sum() / self.df.shape[0]
@@ -106,29 +107,33 @@ class Plots():
 
 class DataCleaner():
 
-    def __init__(self, data=0):
-        if data != 0:
+    def __init__(self, data=None):
+        if data is not None:
             self.df = data
-            self.cat = df.dtypes[df.dtypes == object].index
-            self.num = df.dtypes[df.dtypes != object].index
+            self.cat = self.df.dtypes[self.df.dtypes == object].index
+            self.num = self.df.dtypes[self.df.dtypes != object].index
 
-    def fill_na(self, data, fill_zero, fill_mode, fill_knn, k, fill_value, value='None'):
-        if data != 0:
+    def fill_na(self, data=None, fill_zero=None, fill_mode=None, fill_knn=None, k=None, fill_value=None, value='None'):
+        if data is not None:
             self.df = data
-        for i in fill_zero:
-            self.df[[i]] = self.df.fillna(df[i].fillna(value=0))
-        for i in fill_mode:
-            self.df[[i]] = self.df.fillna(df[i].fillna(value=df[i].mode()[0]))
-        for i in fill_knn:
-            self.df[[i]] = KNN(k=k).fit_transform(self.df[i])
-        for i in fill_value:
-            self.df[[i]] = self.df.fillna(df[i].fillna(value=value))
+        if fill_zero is not None:
+            for i in fill_zero:
+                self.df[[i]] = self.df[[i]].fillna(value=0)
+        if fill_mode is not None:
+            for i in fill_mode:
+                self.df[[i]] = self.df[[i]].fillna(value=self.df[i].mode()[0])
+        if fill_knn is not None:
+            for i in fill_knn:
+                self.df[[i]] = KNN(k=k).fit_transform(self.df[[i]])
+        if fill_value is not None:
+            for i in fill_value:
+                self.df[[i]] = self.df[[i]].fillna(value=value)
         return self.df
 
-    def fill_outliers(self, data=0, cols='None'):
-        if data != 0:
+    def fill_outliers(self, data=None, cols=None):
+        if data is not None:
             self.df = data
-        if cols == 'None':
+        if cols is None:
             cols = self.num
         for col in cols:
             scaler_ = StandardScaler()
@@ -141,29 +146,32 @@ class DataCleaner():
                     tmp_[i] = minv
                 if tmp_[i] > maxv:
                     tmp_[i] = maxv
-            self.df[col] = scaler.inverse_transform(tmp_)
+            self.df[col] = scaler_.inverse_transform(tmp_)
         return self.df
 
-    def skewness(self, data=0, num=None, threshold=0.75):
-        if data != 0:
+    def skewness(self, data=None, num=None, method='box-cox', lamd=0.16, threshold=0.75):
+        if data is not None:
             self.df = data
         if num is not None:
             self.num = num
         skewed_feats = self.df[self.num].apply(lambda x: skew(x.dropna()))
         skewed_feats = skewed_feats[skewed_feats > threshold]
         skewed_feats = skewed_feats.index
-        self.df[skewed_feats] = np.log1p(self.df[skewed_feats])
+        if method == 'log1p':
+            self.df[skewed_feats] = np.log1p(self.df[skewed_feats])
+        if method == 'box-cox':
+            self.df[skewed_feats] = boxcox1p(self.df[skewed_feats], lamd)
         return self.df
 
 
 class FeatureEngineering():
 
-    def __init__(self, data=0):
-        if data != 0:
+    def __init__(self, data=None):
+        if data is not None:
             self.df = data
 
-    def dimension_reduction_num(self, cols, new_name, data=0, drop=True, n=1):
-        if data != 0:
+    def dimension_reduction_num(self, cols, new_name, data=None, drop=True, n=1):
+        if data is not None:
             self.df = data
         pca = PCA(n_components=n)
         new_col = pca.fit_transform(self.df[cols])
@@ -172,8 +180,8 @@ class FeatureEngineering():
         self.df[new_name] = new_col
         return self.df
 
-    def dimension_reduction_cat(self, cols, new_name, data=0, drop=True, factorize=True):
-        if data != 0:
+    def dimension_reduction_cat(self, cols, new_name, data=None, drop=True, factorize=True):
+        if data is not None:
             self.df = data
         if factorize:
             for i in cols:
