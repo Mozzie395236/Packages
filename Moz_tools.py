@@ -5,11 +5,12 @@ import numpy as np
 import itertools
 from sklearn.decomposition import PCA
 import math
-from fancyimpute import KNN
 from scipy.stats import skew
 from sklearn.preprocessing import StandardScaler
 from scipy.special import boxcox1p
-
+from fancyimpute import KNN
+from sklearn.linear_model import Ridge, RidgeCV, ElasticNet, LassoCV, LassoLarsCV
+from sklearn.model_selection import cross_val_score
 
 class Plots():
 
@@ -21,48 +22,69 @@ class Plots():
             self.num = data.dtypes[data.dtypes != object].index
             self.y = data.columns[-1]
 
-    def distribution(self, cat=0, num=0):
-        if cat != 0:
-            self.cat = cat
-        if num != 0:
-            self.num = num
-        for i in range(len(self.cat)):
-            sns.countplot(x=self.df[self.cat].columns[i], data=self.df)
+    def distribution(self, df=None, cat=0, num=0):
+        if df is None:
+            df = self.df
+        if cat == 0:
+            cat = self.cat
+        if num == 0:
+            num = self.num
+        for i in range(len(cat)):
+            sns.countplot(x=df[cat].columns[i], data=df)
             plt.show()
-        for i in self.df[self.num].columns:
-            self.df[i].plot(kind='density', title=i)
+        for i in df[num].columns:
+            df[i].plot(kind='density', title=i)
             plt.show()
 
-    def unique_ratio(self, threshold=0):
+    def unique_ratio(self, df=None, threshold=0):
+        if df is None:
+            df = self.df
         plt.figure(figsize=(20, 10))
-        tmpdf_ = self.df.apply(lambda x: x.unique().shape[0], axis=0) / self.df.shape[0]
-        tmpdf_[tmpdf_ > threshold].plot(kind='bar', title='unique ratio')
+        df = df.apply(lambda x: x.unique().shape[0], axis=0) / df.shape[0]
+        df[df > threshold].plot(kind='bar', title='unique ratio')
 
-    def na_ratio(self, rot=45, threshold=0):
-        tmp0 = self.df.isna().sum() / self.df.shape[0]
+    def na_ratio(self, df=None, cols=None, rot=45, threshold=0):
+        if df is None:
+            df = self.df
+        if cols is None:
+            cols = df.columns
+        tmp0 = df.isna().sum() / df.shape[0]
         tmp1 = tmp0[tmp0 > threshold]
-        self.df[tmp1.index].isnull().sum().plot(kind='bar', rot=rot, title='number of missing values')
+        df[cols][tmp1.index].isnull().sum().plot(kind='bar', rot=rot, title='number of missing values')
 
-    def correlations_to_y(self, y=0, num=0, cat=0, threshold=0.6):
-        if y != 0:
-            self.y = y
-        if num != 0:
-            self.num = num
-        if cat != 0:
-            self.cat = cat
+    def correlations_to_y(self, df=None, y=0, num=0, cat=0, threshold=0.6):
+        if df is None:
+            df = self.df
+        if y == 0:
+            y = self.y
+        if num == 0:
+            num = self.num
+        if cat == 0:
+            cat = self.cat
         tmp_ = []
-        for i in self.num:
-            tmp_ += [self.df[self.y].corr(self.df[i])]
-        cor = pd.Series(tmp_, index=self.num)
+        for i in num:
+            tmp_ += [df[y].corr(df[i])]
+        cor = pd.Series(tmp_, index=num)
         cor[abs(cor) > threshold].plot(kind="barh")
         plt.show()
-        for i in self.cat:
-            data = pd.concat([self.df[self.y], self.df[i]], axis=1)
-            sns.boxplot(x=i, y=self.y, data=data)
+        for i in cat:
+            data = pd.concat([df[y], df[i]], axis=1)
+            sns.boxplot(x=i, y=y, data=data)
             plt.show()
 
-    def correlation_heat_map(self, threshold=0, method='pearson', show=True):
-        corr = self.df.corr(method=method)
+    def correlation_scatter(self, df=None, columns=None):
+        if df is None:
+            df = self.df
+        if columns is None:
+            columns = self.num
+        sns.set()
+        sns.pairplot(df[columns], size=2.5)
+        plt.show()
+
+    def correlation_heat_map(self, df=None, threshold=0, method='pearson', show=True):
+        if df is None:
+            df = self.df
+        corr = df.corr(method=method)
         c = corr[abs(corr) > threshold]
         c = c[c != 1]
         c.dropna(how='all', axis=1, inplace=True)
@@ -107,111 +129,169 @@ class Plots():
 
 class DataCleaner():
 
-    def __init__(self, data=None):
-        if data is not None:
-            self.df = data
+    def __init__(self, df=None):
+        if df is not None:
+            self.df = df
             self.cat = self.df.dtypes[self.df.dtypes == object].index
             self.num = self.df.dtypes[self.df.dtypes != object].index
 
-    def fill_na(self, data=None, fill_zero=None, fill_mode=None, fill_knn=None, k=None, fill_value=None, value='None'):
-        if data is not None:
-            self.df = data
+    def fill_na(self, df=None, fill_zero=None, fill_mode=None, fill_knn=None, k=None, fill_value=None, value='None'):
+        if df is None:
+            df = self.df
         if fill_zero is not None:
             for i in fill_zero:
-                self.df[[i]] = self.df[[i]].fillna(value=0)
+                df[[i]] = df[[i]].fillna(value=0)
         if fill_mode is not None:
             for i in fill_mode:
-                self.df[[i]] = self.df[[i]].fillna(value=self.df[i].mode()[0])
+                df[[i]] = df[[i]].fillna(value=df[i].mode()[0])
         if fill_knn is not None:
             for i in fill_knn:
-                self.df[[i]] = KNN(k=k).fit_transform(self.df[[i]])
+                df[[i]] = KNN(k=k).fit_transform(df[[i]])
         if fill_value is not None:
             for i in fill_value:
-                self.df[[i]] = self.df[[i]].fillna(value=value)
-        return self.df
+                df[[i]] = df[[i]].fillna(value=value)
+        return df
 
-    def fill_outliers(self, data=None, cols=None):
-        if data is not None:
-            self.df = data
+    def fill_outliers(self, df=None, cols=None, method='Standardize', replace=True):
+        if df is None:
+            df = self.df
         if cols is None:
             cols = self.num
-        for col in cols:
-            scaler_ = StandardScaler()
-            scaler_.fit(self.df[[col]])
-            tmp_ = scaler_.transform(self.df[[col]])
-            maxv = tmp_.mean() + 3 * tmp_.std()
-            minv = tmp_.mean() - 3 * tmp_.std()
-            for i in range(len(tmp_)):
-                if tmp_[i] < minv:
-                    tmp_[i] = minv
-                if tmp_[i] > maxv:
-                    tmp_[i] = maxv
-            self.df[col] = scaler_.inverse_transform(tmp_)
-        return self.df
+        if method == 'Standardize':
+            for col in cols:
+                scaler_ = StandardScaler()
+                scaler_.fit(df[[col]])
+                tmp_ = scaler_.transform(df[[col]])
+                maxv = tmp_.mean() + 3 * tmp_.std()
+                minv = tmp_.mean() - 3 * tmp_.std()
+                if replace:
+                    for i in range(len(tmp_)):
+                        if tmp_[i] < minv:
+                            tmp_[i] = minv
+                        if tmp_[i] > maxv:
+                            tmp_[i] = maxv
+                else:
+                    tmp_ = tmp_[tmp_ > minv][tmp_ < maxv]
+                df[col] = scaler_.inverse_transform(tmp_)
+        elif method == 'IQR':
+            for col in cols:
+                tmp_ = df[col]
+                IQR = df[col].quantile(0.75) - df[col].quantile(0.25)
+                m = df[col].mean()
+                maxv = m+3*IQR
+                minv = m-3*IQR
+                if replace:
+                    for i in range(len(tmp_)):
+                        if tmp_[i] < minv:
+                            tmp_[i] = minv
+                        if tmp_[i] > maxv:
+                            tmp_[i] = maxv
+                else:
+                    df[col] = tmp_[tmp_ > minv][tmp_ < maxv]
+        return df
 
-    def skewness(self, data=None, num=None, method='box-cox', lamd=0.16, threshold=0.75):
-        if data is not None:
-            self.df = data
-        if num is not None:
-            self.num = num
-        skewed_feats = self.df[self.num].apply(lambda x: skew(x.dropna()))
+    def skewness(self, df=None, num=None, method='box-cox', lamd=0.16, threshold=0.75):
+        if df is None:
+            df = self.df
+        if num is None:
+            num = self.num
+        skewed_feats = df[num].apply(lambda x: skew(x.dropna()))
         skewed_feats = skewed_feats[skewed_feats > threshold]
         skewed_feats = skewed_feats.index
         if method == 'log1p':
-            self.df[skewed_feats] = np.log1p(self.df[skewed_feats])
+            df[skewed_feats] = np.log1p(df[skewed_feats])
         if method == 'box-cox':
-            self.df[skewed_feats] = boxcox1p(self.df[skewed_feats], lamd)
-        return self.df
+            df[skewed_feats] = boxcox1p(df[skewed_feats], lamd)
+        return df
 
 
 class FeatureEngineering():
 
-    def __init__(self, data=None):
-        if data is not None:
-            self.df = data
+    def __init__(self, df=None):
+        if df is not None:
+            self.df = df
 
-    def dimension_reduction_num(self, cols, new_name, data=None, drop=True, n=1):
-        if data is not None:
-            self.df = data
+    def dimension_reduction_num(self, cols, new_name, df=None, drop=True, n=1):
+        if df is None:
+            df = self.df
         pca = PCA(n_components=n)
-        new_col = pca.fit_transform(self.df[cols])
+        new_col = pca.fit_transform(df[cols])
         if drop:
-            self.df.drop(columns=cols, inplace=True)
-        self.df[new_name] = new_col
-        return self.df
+            df.drop(columns=cols, inplace=True)
+        df[new_name] = new_col
+        return df
 
-    def dimension_reduction_cat(self, cols, new_name, data=None, drop=True, factorize=True):
-        if data is not None:
-            self.df = data
+    def dimension_reduction_cat(self, cols, new_name, df=None, drop=True, factorize=True):
+        if df is None:
+            df = self.df
         if factorize:
             for i in cols:
-                self.df[i] = pd.factorize(self.df[i])[0]
+                df[i] = pd.factorize(df[i])[0]
         tmp_ = 1
         for i in cols:
-            tmp_ *= self.df[i]
-        self.df[new_name] = tmp_
+            tmp_ *= df[i]
+        df[new_name] = tmp_
         if drop:
-            self.df.drop(columns=cols, inplace=True)
-        return self.df
+            df.drop(columns=cols, inplace=True)
+        return df
 
-    def extra_pow(self, cols, pow=3, data=0):
-        if data != 0:
-            self.df = data
-        newcol_ = []
-        for col in cols:
-            for i in range(2, pow+1):
-                newcol_ += [col+str(i)]
-        j, k = 2, 0
-        for i in range(len(newcol_)):
-            self.df[newcol_[i]] = math.pow(self.df[cols[k]], j)
-            if j < pow:
-                j += 1
-            else:
-                k += 1
-                j = 2
+    def extra_pow(self, cols, pow=3, df=None):
+        if df is None:
+            df = self.df
+        for p in range(2, pow+1):
+            for col in cols:
+                newcol_ = col + str(p)
+                tmp_ = []
+                for i in range(len(df[col])):
+                    tmp_.append(math.pow(df[col][i], p))
+                df[newcol_] = tmp_
+        return df
+
+
+def rmse_cv(model, train_x, train_y, cv=10):
+    rmse = np.sqrt(-cross_val_score(model, train_x, train_y, scoring="neg_mean_squared_error", cv=cv))
+    return rmse
+
+
+class FeatureSelection():
+    def __init__(self, train_x=None, train_y=None, test_x=None):
+        if train_x is not None:
+            self.train_x = train_x
+        if train_y is not None:
+            self.train_y = train_y
+        if test_x is not None:
+            self.test_x = test_x
+
+    def lassocv(self, alphas=[1, 0.1, 0.001, 0.0005], train_x=None, train_y=None, cv=10):
+        if train_x is None:
+            train_x = self.train_x
+        if train_y is None:
+            train_y = self.train_y
+        model_lasso = LassoCV(alphas=alphas, cv=cv).fit(train_x, train_y)
+        coef = pd.Series(model_lasso.coef_, index=train_x.columns)
+        print('rmse score:', rmse_cv(model_lasso, train_x=train_x, train_y=train_y, cv=cv).mean())
+        return coef
+
+    def ridgecv(self, alphas=[0.05, 0.1, 0.3, 1, 3, 5, 10], train_x=None, train_y=None, cv=10):
+        if train_x is None:
+            train_x = self.train_x
+        if train_y is None:
+            train_y = self.train_y
+        cv_ridge = [rmse_cv(Ridge(alpha=alpha), train_x, train_y, cv=cv).mean()
+                    for alpha in alphas]
+        cv_ridge = pd.Series(cv_ridge, index=alphas)
+        cv_ridge.plot(title="Validation - Ridge")
+        plt.xlabel("alpha")
+        plt.ylabel("rmse")
+        plt.show()
+        print('rmse score:', cv_ridge.min())
+        r = Ridge(cv_ridge.idxmin())
+        r.fit(train_x, train_y)
+        coef = pd.Series(r.coef_, index=train_x.columns)
+        return coef
+
 
 
 if __name__ == '__main__':
     df = pd.DataFrame(np.random.randint(low=0, high=10, size=(5, 5)), columns=['a', 'b', 'c', 'd', 'e'])
     tmp = Plots(df)
-
